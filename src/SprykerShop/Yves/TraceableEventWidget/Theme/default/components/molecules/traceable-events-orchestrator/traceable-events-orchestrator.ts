@@ -199,8 +199,8 @@ export default class TraceableEventsOrchestrator extends Component {
                 const element = isSelfAttribute
                     ? container
                     : multi
-                    ? Array.from(container.querySelectorAll<HTMLElement>(itemSelector))
-                    : container.querySelector<HTMLElement>(itemSelector);
+                      ? Array.from(container.querySelectorAll<HTMLElement>(itemSelector))
+                      : container.querySelector<HTMLElement>(itemSelector);
 
                 if (!element && predefinedValue === undefined) {
                     continue;
