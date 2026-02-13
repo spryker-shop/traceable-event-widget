@@ -7,8 +7,6 @@
 
 namespace SprykerShop\Yves\TraceableEventWidget\Widget;
 
-use Generated\Shared\Transfer\SearchHttpConfigCriteriaTransfer;
-use Generated\Shared\Transfer\SearchHttpConfigTransfer;
 use Spryker\Yves\Kernel\Widget\AbstractWidget;
 
 /**
@@ -19,12 +17,11 @@ class TraceableEventWidget extends AbstractWidget
 {
     public function __construct()
     {
-        $searchHttpConfigTransfer = $this->getFactory()->createSearchHttpClient()->findSearchConfig(new SearchHttpConfigCriteriaTransfer());
-        $searchSettings = $searchHttpConfigTransfer !== null ? $searchHttpConfigTransfer->getSettings() : [];
+        $searchSettingsResolver = $this->getFactory()->createWidgetSettingsResolver();
 
-        $this->addParameter('searchSettings', $searchSettings);
-        $this->addParameter('adapterMolecules', $this->resolveAdapterMolecules($searchHttpConfigTransfer));
-        $this->addParameter('tenantIdentifier', $this->getConfig()->getTenantIdentifier());
+        $this->addParameter('searchSettings', $searchSettingsResolver->resolveSearchSettings());
+        $this->addParameter('tenantIdentifier', $searchSettingsResolver->resolveTenantIdentifier());
+        $this->addParameter('adapterMolecules', $this->resolveAdapterMolecules($searchSettingsResolver->getActiveAdapter()));
         $this->addParameter('debug', $this->getConfig()->isDebugEnabled());
     }
 
@@ -45,18 +42,18 @@ class TraceableEventWidget extends AbstractWidget
     }
 
     /**
-     * The method for resolving available adapter molecules, that in the future can have more complex logic.
-     *
-     * @param \Generated\Shared\Transfer\SearchHttpConfigTransfer|null $searchHttpConfigTransfer
+     * @param string|null $activeAdapter
      *
      * @return array<string>
      */
-    protected function resolveAdapterMolecules(?SearchHttpConfigTransfer $searchHttpConfigTransfer): array
+    protected function resolveAdapterMolecules(?string $activeAdapter): array
     {
-        if ($searchHttpConfigTransfer === null) {
+        if ($activeAdapter === null) {
             return [];
         }
 
-        return ['traceable-events-algolia'];
+        return [
+            'traceable-events-algolia',
+        ];
     }
 }

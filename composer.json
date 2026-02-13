@@ -16,6 +16,9 @@
     "require-dev": {
         "spryker/code-sniffer": "*"
     },
+    "suggest": {
+        "spryker-eco/algolia": "Provides Algolia search integration for Spryker and config for this module."
+    },
     "autoload": {
         "psr-4": {
             "SprykerShop\\": "src/SprykerShop/"
