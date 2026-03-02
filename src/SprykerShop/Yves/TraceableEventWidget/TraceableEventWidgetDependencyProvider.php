@@ -18,11 +18,6 @@ class TraceableEventWidgetDependencyProvider extends AbstractBundleDependencyPro
      */
     public const CLIENT_SEARCH_HTTP = 'CLIENT_SEARCH_HTTP';
 
-    /**
-     * @param \Spryker\Yves\Kernel\Container $container
-     *
-     * @return \Spryker\Yves\Kernel\Container
-     */
     public function provideDependencies(Container $container): Container
     {
         $container = parent::provideDependencies($container);
@@ -32,11 +27,6 @@ class TraceableEventWidgetDependencyProvider extends AbstractBundleDependencyPro
         return $container;
     }
 
-    /**
-     * @param \Spryker\Yves\Kernel\Container $container
-     *
-     * @return \Spryker\Yves\Kernel\Container
-     */
     protected function addSearchHttpClient(Container $container): Container
     {
         $container->set(static::CLIENT_SEARCH_HTTP, function (Container $container) {

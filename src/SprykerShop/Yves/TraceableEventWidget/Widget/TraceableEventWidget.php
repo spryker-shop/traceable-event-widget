@@ -25,17 +25,11 @@ class TraceableEventWidget extends AbstractWidget
         $this->addParameter('debug', $this->getConfig()->isDebugEnabled());
     }
 
-    /**
-     * @return string
-     */
     public static function getName(): string
     {
         return 'TraceableEventWidget';
     }
 
-    /**
-     * @return string
-     */
     public static function getTemplate(): string
     {
         return '@TraceableEventWidget/views/traceable-event/traceable-event.twig';

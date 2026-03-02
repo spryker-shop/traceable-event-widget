@@ -12,10 +12,5 @@ use Generated\Shared\Transfer\SearchHttpConfigTransfer;
 
 interface TraceableEventWidgetToSearchHttpClientInterface
 {
-    /**
-     * @param \Generated\Shared\Transfer\SearchHttpConfigCriteriaTransfer $searchHttpConfigCriteria
-     *
-     * @return \Generated\Shared\Transfer\SearchHttpConfigTransfer|null
-     */
     public function findSearchConfig(SearchHttpConfigCriteriaTransfer $searchHttpConfigCriteria): ?SearchHttpConfigTransfer;
 }

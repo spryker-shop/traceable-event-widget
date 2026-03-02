@@ -25,11 +25,6 @@ class TraceableEventWidgetToSearchHttpClientBridge implements TraceableEventWidg
         $this->searchHttpClient = $searchHttpClient;
     }
 
-    /**
-     * @param \Generated\Shared\Transfer\SearchHttpConfigCriteriaTransfer $searchHttpConfigCriteria
-     *
-     * @return \Generated\Shared\Transfer\SearchHttpConfigTransfer|null
-     */
     public function findSearchConfig(SearchHttpConfigCriteriaTransfer $searchHttpConfigCriteria): ?SearchHttpConfigTransfer
     {
         return $this->searchHttpClient->findSearchConfig($searchHttpConfigCriteria);
