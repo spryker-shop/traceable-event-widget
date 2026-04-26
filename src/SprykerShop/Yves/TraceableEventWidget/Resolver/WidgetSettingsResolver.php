@@ -64,7 +64,7 @@ class WidgetSettingsResolver implements WidgetSettingsResolverInterface
 
     public function getActiveAdapter(): ?string
     {
-        if ($this->algoliaConfig !== null) {
+        if ($this->algoliaConfig !== null && method_exists($this->algoliaConfig, 'getIsActive') && $this->algoliaConfig->getIsActive()) {
             return static::ADAPTER_ALGOLIA;
         }
 
