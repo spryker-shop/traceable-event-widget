@@ -24,6 +24,10 @@ export class BaseTraceableEventAdapter extends Component {
     }
 
     async eventsHandler(data: EventsHandlerData<EventName>): Promise<void> {
+        if (!this.getHandlers()[data.event]) {
+            return Promise.resolve();
+        }
+
         await Promise.all(this.getHandlers()[data.event].map((handler) => handler.apply(this, [data])));
     }
 

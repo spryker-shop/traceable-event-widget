@@ -125,7 +125,7 @@ export default class TraceableEventsOrchestrator extends Component {
         this.adapters = this.adapters.filter((item) => item !== adapter);
     }
 
-    protected async eventHandler(event?: Event): Promise<void> {
+    protected async eventHandler(event?: Event | CustomEvent): Promise<void> {
         const eventsData = this.groupedEvents[event ? event.type : 'load'];
 
         if ((!this.adapters.length || !eventsData) && !this.debug) {
@@ -144,7 +144,8 @@ export default class TraceableEventsOrchestrator extends Component {
                 return container;
             });
 
-            const noEvent = !trigger && (Boolean(event) || _eventData.triggers);
+            const noEvent =
+                !trigger && (Boolean(event) || _eventData.triggers) && !(event instanceof CustomEvent && event.detail);
 
             if (noEvent) {
                 continue;
@@ -159,7 +160,11 @@ export default class TraceableEventsOrchestrator extends Component {
             return;
         }
 
-        const initialData = { event: eventData.event, ...this.traceableEvents.data };
+        const initialData = {
+            event: eventData.event,
+            ...this.traceableEvents.data,
+            eventDetail: event instanceof CustomEvent ? event.detail : undefined,
+        };
         const dynamicData = this.generateDynamicData(container, trigger?.data);
         const data = { ...initialData, ...this.transformData(dynamicData, trigger?.groupAs) };
 
