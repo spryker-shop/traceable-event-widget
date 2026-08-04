@@ -91,7 +91,6 @@ export default class TraceableEventsOrchestrator extends Component {
         this.groupedEvents = Object.groupBy(this.traceableEvents.list, ({ name }) => name);
     }
 
-    protected readyCallback(): void {}
     protected init(): void {
         Object.keys(this.groupedEvents).forEach((name) => {
             document.addEventListener(

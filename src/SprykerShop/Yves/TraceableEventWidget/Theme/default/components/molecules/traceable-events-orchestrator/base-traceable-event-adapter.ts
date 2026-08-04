@@ -10,7 +10,6 @@ export type TraceableEventHandlers = Partial<Record<EventName, TraceableEventHan
 export class BaseTraceableEventAdapter extends Component {
     protected orchestratorSelector: string;
 
-    protected readyCallback(): void {}
     protected init(): void {
         this.addAdapter();
     }
