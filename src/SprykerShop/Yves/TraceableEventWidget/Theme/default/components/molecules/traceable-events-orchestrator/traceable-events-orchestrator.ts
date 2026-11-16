@@ -1,5 +1,5 @@
 /* eslint-disable max-lines */
-import debounce from 'lodash-es/debounce';
+import { debounce } from 'ShopUi/utils/timing/debounce';
 import Component from 'ShopUi/models/component';
 import { BaseTraceableEventAdapter } from './base-traceable-event-adapter';
 
@@ -95,7 +95,7 @@ export default class TraceableEventsOrchestrator extends Component {
         Object.keys(this.groupedEvents).forEach((name) => {
             document.addEventListener(
                 name,
-                debounce((event) => this.eventHandler(event), this.debounceDelay, {
+                debounce((event: Event) => this.eventHandler(event), this.debounceDelay, {
                     leading: true,
                     trailing: false,
                 }),
