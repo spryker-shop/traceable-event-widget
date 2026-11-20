@@ -9,14 +9,19 @@
 
 {#
     events - TraceableEvents (see. traceable-events-orchestrator.ts)
+    isConsentRequired - false allows every adapter without consent, e.g. outside production.
 #}
 {% define data = {
     events: {},
+    isConsentRequired: true,
 } %}
 
+{# consent-selector - also DEFAULT_CONSENT_SELECTOR in consent-gate.ts. #}
 {% define attributes = {
     events: data.events | json_encode,
     'adapter-selector': '[traceable-adapter]',
+    'consent-selector': 'traceable-events-consent',
+    'consent-required': data.isConsentRequired ? 'true' : 'false',
     debug: false,
 } %}
 

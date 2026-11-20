@@ -1,0 +1,19 @@
+{% extends model('component') %}
+
+{% define config = {
+    name: 'traceable-events-consent',
+    tag: 'traceable-events-consent',
+} %}
+
+{#
+    consentCookieName - the cookie with the granted categories, comma separated, e.g. statistics,marketing.
+#}
+{% define data = {
+    consentCookieName: 'trackingConsent',
+} %}
+
+{% define attributes = {
+    'consent-cookie-name': data.consentCookieName,
+} %}
+
+{% block body %}{% endblock %}

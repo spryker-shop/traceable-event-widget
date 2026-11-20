@@ -1,0 +1,6 @@
+"Tracking Consent","Tracking Consent"
+"Whether storefront tracking, e.g. Google Analytics, waits for the shopper's consent from the shop's consent management platform.","Whether storefront tracking, e.g. Google Analytics, waits for the shopper's consent from the shop's consent management platform."
+Consent,Consent
+"Storefront tracking starts only after the shopper's consent while consent is required.","Storefront tracking starts only after the shopper's consent while consent is required."
+"Require Consent","Require Consent"
+"Tracking providers start and receive events only after the shopper consented. Switch it off only in an environment without real shoppers, e.g. a development or test environment: without required consent, every enabled provider tracks at once.","Tracking providers start and receive events only after the shopper consented. Switch it off only in an environment without real shoppers, e.g. a development or test environment: without required consent, every enabled provider tracks at once."

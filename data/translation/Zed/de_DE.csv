@@ -1,0 +1,6 @@
+"Tracking Consent",Tracking-Einwilligung
+"Whether storefront tracking, e.g. Google Analytics, waits for the shopper's consent from the shop's consent management platform.","Ob das Storefront-Tracking, z. B. Google Analytics, auf die Einwilligung des Kunden aus der Consent-Management-Plattform des Shops wartet."
+Consent,Einwilligung
+"Storefront tracking starts only after the shopper's consent while consent is required.","Das Storefront-Tracking startet erst nach der Einwilligung des Kunden, solange eine Einwilligung erforderlich ist."
+"Require Consent","Einwilligung erforderlich"
+"Tracking providers start and receive events only after the shopper consented. Switch it off only in an environment without real shoppers, e.g. a development or test environment: without required consent, every enabled provider tracks at once.","Tracking-Anbieter starten und erhalten Ereignisse erst nach der Einwilligung des Kunden. Nur in einer Umgebung ohne echte Kunden ausschalten, z. B. einer Entwicklungs- oder Testumgebung: Ohne erforderliche Einwilligung erfasst jeder aktivierte Anbieter sofort."

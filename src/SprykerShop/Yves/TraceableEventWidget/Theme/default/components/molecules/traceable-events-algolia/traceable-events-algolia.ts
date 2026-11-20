@@ -1,5 +1,6 @@
 /* eslint-disable max-lines */
-import algolia, { InsightsMethodMap } from 'search-insights';
+import type algolia from 'search-insights';
+import type { InsightsMethodMap } from 'search-insights';
 import {
     BaseTraceableEventAdapter,
     TraceableEventHandlers,
@@ -9,6 +10,7 @@ import {
     EventsHandlerData,
     TraceableEventHandler,
 } from '../traceable-events-orchestrator/traceable-events-orchestrator';
+import { CONSENT_PURPOSE_STATISTICS, ConsentPurpose } from '../traceable-events-consent/consent-purposes';
 
 declare global {
     interface GlobalEventsData {
@@ -27,7 +29,8 @@ interface InitialData {
 interface ProductDetails {
     sku: string;
     position?: number;
-    price?: number;
+    // Null when the visitor may not see prices.
+    price?: number | null;
     searchId?: string;
     quantity?: number;
 }
@@ -43,6 +46,12 @@ interface ProductEventData extends EventsHandlerData<EventName> {
     filters?: Filter[];
 }
 
+interface CartItemsChangeData extends EventsHandlerData<EventName> {
+    eventDetail?: {
+        increased?: ProductDetails[];
+    };
+}
+
 interface OrderSuccessData extends EventsHandlerData<EventName> {
     products: ProductDetails[];
     total: number;
@@ -51,21 +60,49 @@ interface OrderSuccessData extends EventsHandlerData<EventName> {
 const SEARCH_QUERY_ID_KEY = 'algolia-search-query-id';
 const FILTERS_KEY = 'algolia-filters';
 
+type InsightsClient = typeof algolia;
+
 export default class TraceableEventsAlgolia extends BaseTraceableEventAdapter {
     protected algoliaLimitProducts = 20;
     protected algoliaLimitFilters = 10;
+    // Started by activate(); resolves to null when the library fails to load.
+    protected insightsClientLoad: Promise<InsightsClient | null> | null = null;
 
-    override init(): void {
+    // Search insights measure how shoppers search and what they pick from the results.
+    override get consentPurposes(): ConsentPurpose[] {
+        return [CONSENT_PURPOSE_STATISTICS];
+    }
+
+    // Loaded only with consent: no user token reaches Algolia before, and no download without consent.
+    override activate(): void {
         const { appId, apiKey, userToken, authenticatedUserToken } = this.initialData;
 
-        algolia('init', {
+        this.insightsClientLoad ??= this.loadInsightsClient();
+        // Chained before any event, so the library is set up before it sends one.
+        this.callInsightsClient('init', {
             appId,
             apiKey,
             ...((authenticatedUserToken || userToken) && { userToken: authenticatedUserToken || userToken }),
             ...(authenticatedUserToken && { authenticatedUserToken }),
         });
+    }
 
-        super.init();
+    // A library blocked e.g. by a content blocker sends nothing; tracking never breaks the page.
+    protected async loadInsightsClient(): Promise<InsightsClient | null> {
+        try {
+            const { default: insightsClient } = await import(
+                /* webpackMode: "lazy" */
+                /* webpackChunkName: "search-insights" */
+                'search-insights'
+            );
+
+            return insightsClient;
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error(`TraceableEvents: ${this.name} - search-insights did not load: ${error}`);
+
+            return null;
+        }
     }
 
     override getHandlers(): Partial<TraceableEventHandlers> {
@@ -74,6 +111,7 @@ export default class TraceableEventsAlgolia extends BaseTraceableEventAdapter {
             FILTER_CLICK: [this.filterClickHandler],
             PAGE_LOAD: [this.viewedProductsHandler, this.purchaseHandler, this.viewedFiltersHandler],
             ADD_TO_CART: [this.addToCartHandler],
+            CART_ITEMS_CHANGE: [this.cartItemsChangeHandler],
             ADD_TO_WISHLIST: [this.convertedClickHandler('Added to Wishlist')],
             ADD_TO_SHOPPING_LIST: [this.convertedClickHandler('Added to Shopping List')],
         };
@@ -170,8 +208,9 @@ export default class TraceableEventsAlgolia extends BaseTraceableEventAdapter {
             currency,
             ...(globalQueryID && { queryID: globalQueryID }),
             objectData: [],
-            value: 0,
         };
+        let value = 0;
+        let isValueComplete = true;
 
         for (const product of this.normalizeProducts(products)) {
             const { sku, price, quantity, searchId } = product;
@@ -184,13 +223,35 @@ export default class TraceableEventsAlgolia extends BaseTraceableEventAdapter {
                 eventData.queryID = queryID;
             }
 
-            eventData.objectData.push({ price, quantity });
+            // Null for a customer who may not see prices; the Insights API rejects it.
+            const isPriceMissing = price === undefined || price === null;
+
+            eventData.objectData.push({ quantity, ...(!isPriceMissing && { price }) });
             eventData.objectIDs.push(sku);
+
+            if (isPriceMissing) {
+                isValueComplete = false;
+
+                continue;
+            }
+
             // eslint-disable-next-line @typescript-eslint/no-magic-numbers
-            eventData.value = parseFloat((eventData.value + price * quantity).toFixed(2));
+            value = parseFloat((value + price * quantity).toFixed(2));
         }
 
-        this.sendEvent(name, eventData);
+        // A value without every price would understate the revenue.
+        this.sendEvent(name, { ...eventData, ...(isValueComplete && { value }) });
+    }
+
+    // The async cart reports an add to cart as a change; the added lines are the increased ones.
+    protected cartItemsChangeHandler(data: CartItemsChangeData): void {
+        const increased = data.eventDetail?.increased ?? [];
+
+        if (!increased.length) {
+            return;
+        }
+
+        this.addToCartHandler({ ...data, products: increased });
     }
 
     protected purchaseHandler(data: OrderSuccessData): void {
@@ -232,9 +293,21 @@ export default class TraceableEventsAlgolia extends BaseTraceableEventAdapter {
     }
 
     protected sendEvent(name: keyof InsightsMethodMap, data: Record<string, unknown>): void {
-        algolia(name, {
+        this.callInsightsClient(name, {
             index: this.initialData.indexName,
             ...data,
+        });
+    }
+
+    // Once the library has loaded; activate() starts the load before the orchestrator hands over any event.
+    protected callInsightsClient(method: keyof InsightsMethodMap, payload: Record<string, unknown>): void {
+        this.insightsClientLoad?.then((insightsClient) => {
+            try {
+                insightsClient?.(method, payload);
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error(`TraceableEvents: ${this.name} - ${method} failed: ${error}`);
+            }
         });
     }
 

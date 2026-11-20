@@ -34,6 +34,8 @@ Define the events and their configurations in your Twig template using the `Even
 
 Define any global data that will be available across all events. (events.data)
 
+A trigger selector is matched against the clicked or submitting element and its ancestors, and the first event of the list with a matching trigger handles the DOM event. For a `submit` event, the matching starts at the button that submitted the form (`SubmitEvent.submitter`), so the trigger can tell the form's submit buttons apart; a selector for the form itself still matches, as the form is an ancestor of the button. Before version 1.5.0 the matching started at the event target, the form itself. Select the clicked element itself, e.g. a button, rather than a focused one: Safari and Firefox on macOS do not focus a button on click. To read data outside the clicked element, start the lookup from one of its ancestors with `closest: true`.
+
 Example:
 
 ```twig
@@ -48,7 +50,7 @@ Example:
             name: 'click',
             triggers: [
                 {
-                    selector: '.js-product-item:not(:has(.js-ajax-add-to-cart__button:focus))',
+                    selector: '.js-product-item',
                     groupAs: {
                         key: 'products',
                         toArray: true,
@@ -203,6 +205,7 @@ Then you can add it to twig events configuration.
 
 -   **`event`**: Specifies the event type (e.g., `PAGE_LOAD`, `PRODUCT_CLICK`).
 -   **`name`**: A case-sensitive string representing the event type to listen for (`click`, `change`, `load`).
+-   **`debounce`**: Optional, `true` by default: a DOM event that matches the event on the same trigger element within 300 ms of its previous one is dropped, e.g. a double click. DOM events on different trigger elements, e.g. the remove buttons of two cart lines, are all handled. Set `false` for an event that carries its own data every time, e.g. a cart change. It applies to the event alone, so other events with the same `name` do not change it. Before version 1.5.0 every DOM event of the same type within 300 ms was dropped, whichever event and element it matched.
 -   **`triggers`**: An array of conditions for capturing the event.
     -   **`selector`**: CSS selector for the element to monitor.
     -   **`groupAs`**: Groups data into a key, optionally as an array.
@@ -212,6 +215,7 @@ Then you can add it to twig events configuration.
         -   **`attribute`**: The attribute to retrieve (default: key name).
         -   **`value`**: A static value if defined.
         -   **`multi`**: Specifies whether to capture multiple matching elements.
+        -   **`closest`**: Looks the selector up among the ancestors of the trigger element instead of its descendants.
         -   **`composed`**: Nested structure to compose data objects.
 
 ### Example: Event Configuration
@@ -287,6 +291,110 @@ Then you can add it to twig events configuration.
   }
 #}
 ```
+
+## Cookie Consent
+
+Spryker ships no consent management platform (CMP) and no consent banner; a project uses the CMP it owns. Consent is decided on two levels:
+
+| Level | Who | Decides |
+| --- | --- | --- |
+| Adapter | The adapter, in core or in its module | Which Spryker purposes its events serve: `statistics`, `marketing` or `preferences` |
+| Consent component | The project, in one file | Which category of its CMP each Spryker purpose is, and whether the shopper granted it |
+
+The orchestrator starts an adapter, through its `activate()` method, once the shopper granted any of the adapter's purposes: before, it loads no provider script, writes no cookie and receives no event. An event reaches an adapter only when every purpose the event serves for that adapter is granted. Without consent, events are dropped, never stored; consent given later on the same page reports that page's load (`PAGE_LOAD`) to the adapters it allows, not the actions taken before. Consent withdrawn on the page stops, through its `deactivate()` method, every started adapter none of whose purposes is granted any more: it receives no event from then on, and an adapter whose provider sends on its own, e.g. Google Analytics, stops the provider. Consent given again starts it again through `activate()`, without reporting the page's load a second time. Cookies a provider already wrote are left to the CMP, which removes them on withdrawal.
+
+Consent is required by default. An environment without real shoppers, e.g. a development or test environment, can switch it off in the Back Office: Configuration → Integrations → Tracking Consent → Require Consent, globally or per store.
+
+The requirement is the orchestrator's `consent-required` attribute; a project template of the orchestrator without it requires consent. A shop that requires consent and renders no consent component, or wires no CMP, tracks nothing. A shop that switches the requirement off tracks without consent, which is the project's responsibility.
+
+### Consent Purposes of an Adapter
+
+An adapter declares its purposes in `consentPurposes`, `statistics` by default, and, when its events serve different purposes, the purposes of each event in `getEventConsentPurposes()`:
+
+```ts
+import {
+    CONSENT_PURPOSE_MARKETING,
+    CONSENT_PURPOSE_STATISTICS,
+    ConsentPurpose,
+} from 'TraceableEventWidget/components/molecules/traceable-events-consent/consent-purposes';
+
+export default class TraceableEventsSomePixel extends BaseTraceableEventAdapter {
+    // Starts with statistics or with marketing consent.
+    override get consentPurposes(): ConsentPurpose[] {
+        return [CONSENT_PURPOSE_STATISTICS, CONSENT_PURPOSE_MARKETING];
+    }
+
+    // Adding to cart feeds ad audiences as well; every other event is statistics only.
+    override getEventConsentPurposes(eventName: EventName): ConsentPurpose[] {
+        if (eventName === 'ADD_TO_CART') {
+            return [CONSENT_PURPOSE_STATISTICS, CONSENT_PURPOSE_MARKETING];
+        }
+
+        return [CONSENT_PURPOSE_STATISTICS];
+    }
+}
+```
+
+| Adapter | Purposes |
+| --- | --- |
+| `traceable-events-google-analytics` | `statistics` |
+| `traceable-events-algolia` | `statistics` |
+
+### Connecting a CMP
+
+Out of the box, the consent component maps every purpose to a category of the same name and reads the granted categories from the `trackingConsent` cookie, comma separated, e.g. `statistics,marketing`. Another cookie name is passed in the component's `consentCookieName` data. Any CMP can set it from its consent callback and then tell the orchestrator:
+
+```js
+document.cookie = 'trackingConsent=statistics; path=/; max-age=31536000; SameSite=Lax';
+document.dispatchEvent(new Event('traceable-events-consent-change'));
+```
+
+To read the CMP directly instead, a project overrides the consent component in its own theme, e.g. `src/Pyz/TraceableEventWidget/src/Pyz/Yves/TraceableEventWidget/Theme/default/components/molecules/traceable-events-consent/traceable-events-consent.ts`. That one file relates tracking to the CMP: `categoriesByPurpose` maps the Spryker purposes to the CMP's category names, `isCategoryGranted()` reads the CMP's consent, and `init()` subscribes to the CMP and calls `notifyConsentChange()`. Example for Cookiebot:
+
+```ts
+import TraceableEventsConsentCore from 'TraceableEventWidget/components/molecules/traceable-events-consent/traceable-events-consent';
+
+declare global {
+    interface Window {
+        Cookiebot?: { consent: Record<string, boolean> };
+    }
+}
+
+export default class TraceableEventsConsent extends TraceableEventsConsentCore {
+    protected init(): void {
+        window.addEventListener('CookiebotOnConsentReady', () => this.notifyConsentChange());
+        // Reports a consent Cookiebot already has.
+        super.init();
+    }
+
+    // Cookiebot's categories are necessary, preferences, statistics and marketing: the same names as the Spryker purposes.
+    protected isCategoryGranted(category: string): boolean {
+        return window.Cookiebot?.consent[category] === true;
+    }
+}
+```
+
+### Grouping Single Events Differently
+
+A CMP may group events differently from the adapter, e.g. a purchase as conversion tracking under its advertising category, while every other Google Analytics event is analytics. The consent component's `getEventPurposes()` moves single events to other purposes, in the same project file; it receives the adapter's name, the event name and the purposes the adapter declares. Event names are the orchestrator's, e.g. `ADD_TO_CART`, and the names an adapter sends to its provider, e.g. Google Analytics' `purchase`, which the adapter checks before sending:
+
+```ts
+protected getEventPurposes(
+    adapterName: string,
+    eventName: string,
+    defaultPurposes: ConsentPurpose[],
+): ConsentPurpose[] {
+    if (adapterName === 'traceable-events-google-analytics' && eventName === 'purchase') {
+        return [...defaultPurposes, CONSENT_PURPOSE_MARKETING];
+    }
+
+    return defaultPurposes;
+}
+```
+
+A purpose of the project's own, e.g. `conversion`, works the same way once `categoriesByPurpose` maps it to a CMP category. The adapter still starts by its own purposes, so a purpose added here only restricts the event.
+
+The project's `index.ts` registers it under the same name, `traceable-events-consent`. The `disableUserActionTracking` cookie still suppresses the orchestrator, and with it every adapter, regardless of consent.
 
 ## Data Flow
 

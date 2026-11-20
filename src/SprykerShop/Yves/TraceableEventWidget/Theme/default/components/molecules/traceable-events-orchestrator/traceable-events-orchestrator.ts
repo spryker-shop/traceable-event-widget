@@ -1,7 +1,14 @@
 /* eslint-disable max-lines */
-import { debounce } from 'ShopUi/utils/timing/debounce';
 import Component from 'ShopUi/models/component';
 import { BaseTraceableEventAdapter } from './base-traceable-event-adapter';
+import { CONSENT_CHANGE_EVENT, DEFAULT_CONSENT_SELECTOR, withConsent } from '../traceable-events-consent/consent-gate';
+import type { ConsentPurpose } from '../traceable-events-consent/consent-purposes';
+import type TraceableEventsConsent from '../traceable-events-consent/traceable-events-consent';
+import {
+    ProductTrackingDetails,
+    expandWithProductTrackingDetails,
+    readProductTrackingDetails,
+} from './product-tracking-details';
 
 declare global {
     interface SPRYKER_EVENTS {
@@ -9,6 +16,13 @@ declare global {
         FILTER_CLICK: undefined;
         PAGE_LOAD: undefined;
         ADD_TO_CART: undefined;
+        REMOVE_FROM_CART: undefined;
+        CHANGE_CART_QUANTITY: undefined;
+        CART_ITEMS_CHANGE: undefined;
+        ITEM_LIST_VIEW: undefined;
+        CHECKOUT_START: undefined;
+        SHIPMENT_SUBMIT: undefined;
+        PAYMENT_SUBMIT: undefined;
         ADD_TO_WISHLIST: undefined;
         ADD_TO_SHOPPING_LIST: undefined;
     }
@@ -19,6 +33,7 @@ declare global {
         HOME: undefined;
         PDP: undefined;
         QUICK_ORDER: undefined;
+        CHECKOUT: undefined;
         CHECKOUT_SUCCESS: undefined;
     }
 
@@ -35,6 +50,8 @@ export interface EventTriggerData {
     selector?: string | 'self';
     value: unknown;
     multi?: boolean;
+    // Looks the selector up among the ancestors of the trigger element instead of its descendants.
+    closest?: boolean;
     composed: Record<string, EventTriggerData | EventTriggerData[]>;
 }
 
@@ -55,6 +72,9 @@ export interface EventData<T extends EventName> {
     event: T;
     name: string;
     triggers?: EventTrigger[];
+    // False hands every matching DOM event over, for events that each carry their own data, e.g. one cart change each.
+    // Otherwise a matching DOM event that follows the previous one of the same event within the delay is dropped, e.g. a double click.
+    debounce?: boolean;
 }
 
 export interface TraceableEvents {
@@ -81,7 +101,16 @@ export default class TraceableEventsOrchestrator extends Component {
     protected traceableEvents: TraceableEvents;
     protected initialHandlers = 0;
     protected debounceDelay = 300;
+    // The time of the last DOM event of each event, per matched trigger element.
+    protected lastDomEventTimes = new WeakMap<Element, Partial<Record<string, number>>>();
     protected controller = new AbortController();
+    // The page's product tracking details, read once when an event is handled and used for all products of its data.
+    protected productTrackingDetails: ProductTrackingDetails = {};
+    protected activatedAdapters = new Set<BaseTraceableEventAdapter>();
+    protected pageLoadHandledAdapters = new Set<BaseTraceableEventAdapter>();
+    protected isPageLoadDispatched = false;
+    // Looked up once: the consent component is rendered with the page. Undefined until then.
+    protected consent: TraceableEventsConsent | null | undefined;
 
     constructor() {
         super();
@@ -89,18 +118,18 @@ export default class TraceableEventsOrchestrator extends Component {
         this.initialHandlers = document.querySelectorAll(this.adapterSelector).length;
         this.traceableEvents = JSON.parse(this.events);
         this.groupedEvents = Object.groupBy(this.traceableEvents.list, ({ name }) => name);
+
+        // Listened to from the start, as a CMP may report the stored consent before this component's init().
+        document.addEventListener(CONSENT_CHANGE_EVENT, () => this.consentChangeHandler(), {
+            signal: this.controller.signal,
+        });
     }
 
     protected init(): void {
         Object.keys(this.groupedEvents).forEach((name) => {
-            document.addEventListener(
-                name,
-                debounce((event: Event) => this.eventHandler(event), this.debounceDelay, {
-                    leading: true,
-                    trailing: false,
-                }),
-                { signal: this.controller.signal },
-            );
+            document.addEventListener(name, (event: Event) => this.eventHandler(event), {
+                signal: this.controller.signal,
+            });
         });
     }
 
@@ -116,29 +145,140 @@ export default class TraceableEventsOrchestrator extends Component {
         this.adapters.push(adapter);
 
         if (this.initialHandlers === this.adapters.length) {
+            this.isPageLoadDispatched = true;
+            this.activateAllowedAdapters();
             this.eventHandler();
         }
     }
 
-    removeAdapter(adapter: BaseTraceableEventAdapter): void {
-        this.adapters = this.adapters.filter((item) => item !== adapter);
-    }
-
-    protected async eventHandler(event?: Event | CustomEvent): Promise<void> {
-        const eventsData = this.groupedEvents[event ? event.type : 'load'];
-
-        if ((!this.adapters.length || !eventsData) && !this.debug) {
+    // Stops the adapters consent no longer allows, starts those it allows now and reports the page load to them once.
+    // Earlier actions are not replayed. A change before every adapter registered is read by the first activation.
+    protected consentChangeHandler(): void {
+        if (!this.isPageLoadDispatched) {
             return;
         }
 
-        const target = event?.target as HTMLElement;
+        this.deactivateWithdrawnAdapters();
+        this.activateAllowedAdapters();
+
+        const adaptersWithoutPageLoad = [...this.activatedAdapters].filter(
+            (adapter) => !this.pageLoadHandledAdapters.has(adapter),
+        );
+
+        if (adaptersWithoutPageLoad.length) {
+            this.handleEvent(undefined, adaptersWithoutPageLoad);
+        }
+    }
+
+    // E.g. a statistics and marketing tool starts with marketing consent only.
+    protected activateAllowedAdapters(): void {
+        for (const adapter of this.adapters) {
+            const isAdapterToActivate = !this.activatedAdapters.has(adapter) && this.isAdapterAllowed(adapter);
+
+            if (!isAdapterToActivate) {
+                continue;
+            }
+
+            this.activatedAdapters.add(adapter);
+
+            try {
+                adapter.activate();
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error(`TraceableEvents: activate ${adapter.name} - ${error}`);
+            }
+        }
+    }
+
+    // Once none of its purposes is granted; activate() starts it again on a new grant.
+    protected deactivateWithdrawnAdapters(): void {
+        for (const adapter of [...this.activatedAdapters]) {
+            if (this.isAdapterAllowed(adapter)) {
+                continue;
+            }
+
+            this.activatedAdapters.delete(adapter);
+
+            try {
+                adapter.deactivate();
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error(`TraceableEvents: deactivate ${adapter.name} - ${error}`);
+            }
+        }
+    }
+
+    protected isAdapterAllowed(adapter: BaseTraceableEventAdapter): boolean {
+        return adapter.consentPurposes.some((purpose) => this.isPurposeGranted(purpose));
+    }
+
+    protected isPurposeGranted(purpose: ConsentPurpose): boolean {
+        return withConsent(this.findConsent(), this.isConsentRequired, (consent) => consent.isPurposeGranted(purpose));
+    }
+
+    // The orchestrator's event names, e.g. ADD_TO_CART, or an adapter's provider event names, e.g. GA4's purchase.
+    isEventAllowed(adapterName: string, eventName: string, purposes: ConsentPurpose[]): boolean {
+        return withConsent(this.findConsent(), this.isConsentRequired, (consent) =>
+            consent.isEventAllowed(adapterName, eventName, purposes),
+        );
+    }
+
+    protected findConsent(): TraceableEventsConsent | null {
+        // Compared with undefined, not `??=`: a page without the component keeps null and is not searched again.
+        if (this.consent === undefined) {
+            this.consent = document.querySelector<TraceableEventsConsent>(this.consentSelector);
+        }
+
+        return this.consent;
+    }
+
+    protected getAllowedAdapters(
+        eventName: EventName,
+        adapters: BaseTraceableEventAdapter[],
+    ): BaseTraceableEventAdapter[] {
+        return adapters.filter(
+            (adapter) =>
+                this.activatedAdapters.has(adapter) &&
+                this.isEventAllowed(adapter.name, eventName, adapter.getEventConsentPurposes(eventName)),
+        );
+    }
+
+    removeAdapter(adapter: BaseTraceableEventAdapter): void {
+        this.adapters = this.adapters.filter((item) => item !== adapter);
+        this.activatedAdapters.delete(adapter);
+        this.pageLoadHandledAdapters.delete(adapter);
+    }
+
+    protected async eventHandler(event?: Event | CustomEvent): Promise<void> {
+        await this.handleEvent(event, this.adapters);
+    }
+
+    // Kept apart from eventHandler(), so a project override of it cannot drop the adapters a page load is for.
+    protected async handleEvent(
+        event: Event | CustomEvent | undefined,
+        adapters: BaseTraceableEventAdapter[],
+    ): Promise<void> {
+        const eventsData = this.groupedEvents[event ? event.type : 'load'];
+
+        // An event name without configured events has nothing to handle, also in debug mode.
+        if (!eventsData) {
+            return;
+        }
+
+        if (!this.adapters.length && !this.debug) {
+            return;
+        }
+
+        // A submit event targets the form, which cannot tell the form's submit buttons apart; the submitter can.
+        const target = ((event as SubmitEvent)?.submitter ?? event?.target) as HTMLElement;
         let eventData: EventData<EventName>;
         let trigger: EventTrigger;
         let container: HTMLElement;
 
         for (const _eventData of eventsData) {
             trigger = _eventData.triggers?.find((_trigger) => {
-                container = target.closest(_trigger.selector);
+                // An event dispatched on the document, e.g. by another component, has no element to match the selector.
+                container = target instanceof Element ? target.closest<HTMLElement>(_trigger.selector) : null;
 
                 return container;
             });
@@ -155,13 +295,22 @@ export default class TraceableEventsOrchestrator extends Component {
             break;
         }
 
-        if (!eventData) {
+        if (!eventData || (event && this.isDebounced(eventData, container ?? null))) {
             return;
         }
 
+        // Debug mode logs the event even without an allowed adapter.
+        const allowedAdapters = this.getAllowedAdapters(eventData.event, adapters);
+
+        if (!allowedAdapters.length && !this.debug) {
+            return;
+        }
+
+        this.productTrackingDetails = readProductTrackingDetails();
+
         const initialData = {
             event: eventData.event,
-            ...this.traceableEvents.data,
+            ...this.getGlobalData(),
             eventDetail: event instanceof CustomEvent ? event.detail : undefined,
         };
         const dynamicData = this.generateDynamicData(container, trigger?.data);
@@ -177,12 +326,50 @@ export default class TraceableEventsOrchestrator extends Component {
             /* eslint-enable no-console */
         }
 
+        // The page load is the call without an event, whichever event name the project configured for it.
+        if (!event) {
+            allowedAdapters.forEach((adapter) => this.pageLoadHandledAdapters.add(adapter));
+        }
+
+        // The navigation is never held: each adapter delivers in a way that outlives the page, e.g. a beacon request.
+
         try {
-            await Promise.all(this.adapters.map((adapter) => adapter.eventsHandler(data)));
+            await Promise.all(allowedAdapters.map((adapter) => adapter.eventsHandler(data)));
         } catch (error) {
             // eslint-disable-next-line no-console
             console.error(`TraceableEvents: eventHandler - ${error}`);
         }
+    }
+
+    // Decided per matched event and per matched trigger element: a double click on one element is dropped, while clicks on two elements,
+    // e.g. the remove buttons of two cart lines, both count. An event that sets `debounce: false` is never dropped.
+    // Leading edge, like a debounce: the first DOM event is handed over, and each following one within the delay restarts the wait.
+    protected isDebounced(eventData: EventData<EventName>, container: Element | null): boolean {
+        if (eventData.debounce === false) {
+            return false;
+        }
+
+        // An event without a trigger element, e.g. one another component dispatches, is debounced for the whole page.
+        const debouncedElement = container ?? document.documentElement;
+        const key = `${eventData.name}:${eventData.event}`;
+        const lastDomEventTimes = this.lastDomEventTimes.get(debouncedElement) ?? {};
+        const lastDomEventTime = lastDomEventTimes[key];
+        const now = Date.now();
+
+        this.lastDomEventTimes.set(debouncedElement, { ...lastDomEventTimes, [key]: now });
+
+        return lastDomEventTime !== undefined && now - lastDomEventTime < this.debounceDelay;
+    }
+
+    // A page passes its own products in the global data, e.g. the product detail page; they get the details of the product tracking details widget as well.
+    protected getGlobalData(): GlobalEventsData {
+        const globalData: GlobalEventsData = { ...this.traceableEvents.data };
+
+        for (const [key, value] of Object.entries(globalData)) {
+            Object.assign(globalData, { [key]: expandWithProductTrackingDetails(value, this.productTrackingDetails) });
+        }
+
+        return globalData;
     }
 
     protected generateDynamicData(container: HTMLElement, data: EventTriggerDataDetails = {}): Record<string, unknown> {
@@ -194,17 +381,12 @@ export default class TraceableEventsOrchestrator extends Component {
                     value: predefinedValue,
                     selector: itemSelector,
                     attribute: attributeName,
-                    multi,
                     flatten,
                     composed,
                 } = item;
                 const attribute = attributeName ?? key;
                 const isSelfAttribute = itemSelector === 'self';
-                const element = isSelfAttribute
-                    ? container
-                    : multi
-                      ? Array.from(container.querySelectorAll<HTMLElement>(itemSelector))
-                      : container.querySelector<HTMLElement>(itemSelector);
+                const element = this.findDataElement(container, item);
 
                 if (!element && predefinedValue === undefined) {
                     continue;
@@ -228,7 +410,28 @@ export default class TraceableEventsOrchestrator extends Component {
 
                 return shouldFlat ? { ...acc, ...data } : { ...acc, [key]: data };
             }
+
+            // Nothing found for this key: keep what the other keys collected.
+            return acc;
         }, {});
+    }
+
+    protected findDataElement(container: HTMLElement, item: EventTriggerData): HTMLElement | HTMLElement[] | null {
+        const { selector: itemSelector, multi, closest } = item;
+
+        if (itemSelector === 'self') {
+            return container;
+        }
+
+        if (closest) {
+            return container.closest<HTMLElement>(itemSelector);
+        }
+
+        if (multi) {
+            return Array.from(container.querySelectorAll<HTMLElement>(itemSelector));
+        }
+
+        return container.querySelector<HTMLElement>(itemSelector);
     }
 
     protected getValue(element: HTMLElement, details: ValueDetails): unknown {
@@ -250,7 +453,9 @@ export default class TraceableEventsOrchestrator extends Component {
     }
 
     protected getData(value: unknown): unknown {
-        return typeof value === 'string' ? this.parseString(value) : value;
+        const data = typeof value === 'string' ? this.parseString(value) : value;
+
+        return expandWithProductTrackingDetails(data, this.productTrackingDetails);
     }
 
     protected transformData(
@@ -280,6 +485,16 @@ export default class TraceableEventsOrchestrator extends Component {
 
     protected get adapterSelector(): string {
         return this.getAttribute('adapter-selector');
+    }
+
+    // A project template without the attribute still finds the default consent component.
+    protected get consentSelector(): string {
+        return this.getAttribute('consent-selector') ?? DEFAULT_CONSENT_SELECTOR;
+    }
+
+    // Required unless switched off: a project template without the attribute requires consent.
+    protected get isConsentRequired(): boolean {
+        return this.getAttribute('consent-required') !== 'false';
     }
 
     protected get debug(): boolean {

@@ -1,0 +1,11 @@
+{% extends template('widget') %}
+
+{% define data = {
+    productTrackingDetails: _widget.productTrackingDetails,
+} %}
+
+{% block body %}
+    {% if data.productTrackingDetails is not empty %}
+        <div hidden data-product-tracking-details="{{ data.productTrackingDetails | json_encode }}"></div>
+    {% endif %}
+{% endblock %}

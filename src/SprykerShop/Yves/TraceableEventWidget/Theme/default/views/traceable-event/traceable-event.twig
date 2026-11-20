@@ -6,26 +6,29 @@
     tenantIdentifier: _widget.tenantIdentifier,
     adapterMolecules: _widget.adapterMolecules,
     debug: _widget.debug,
+    isVisible: _widget.isUserActionTrackingEnabled,
+    isTrackingConsentRequired: _widget.isTrackingConsentRequired,
 } %}
 
 {% block body %}
-    {% if not app.request.cookies.get('disableUserActionTracking') %}
-        {% include molecule('traceable-events-orchestrator', 'TraceableEventWidget') with {
+    {% include molecule('traceable-events-consent', 'TraceableEventWidget') only %}
+
+    {% include molecule('traceable-events-orchestrator', 'TraceableEventWidget') with {
+        data: {
+            events: data.events,
+            isConsentRequired: data.isTrackingConsentRequired,
+        },
+        attributes: {
+            debug: data.debug,
+        },
+    } only %}
+
+    {% for moleculeName in data.adapterMolecules %}
+        {% include molecule(moleculeName, 'TraceableEventWidget') ignore missing with {
             data: {
-                events: data.events,
-            },
-            attributes: {
-                debug: data.debug,
+                searchSettings: data.searchSettings,
+                tenantIdentifier: data.tenantIdentifier,
             },
         } only %}
-
-        {% for moleculeName in data.adapterMolecules %}
-            {% include molecule(moleculeName, 'TraceableEventWidget') ignore missing with {
-                data: {
-                    searchSettings: data.searchSettings,
-                    tenantIdentifier: data.tenantIdentifier,
-                },
-            } only %}
-        {% endfor %}
-    {% endif %}
+    {% endfor %}
 {% endblock %}

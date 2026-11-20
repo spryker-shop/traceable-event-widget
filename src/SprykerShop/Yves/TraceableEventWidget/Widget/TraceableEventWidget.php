@@ -15,6 +15,10 @@ use Spryker\Yves\Kernel\Widget\AbstractWidget;
  */
 class TraceableEventWidget extends AbstractWidget
 {
+    protected const string PARAMETER_IS_USER_ACTION_TRACKING_ENABLED = 'isUserActionTrackingEnabled';
+
+    protected const string PARAMETER_IS_TRACKING_CONSENT_REQUIRED = 'isTrackingConsentRequired';
+
     public function __construct()
     {
         $searchSettingsResolver = $this->getFactory()->createWidgetSettingsResolver();
@@ -23,6 +27,8 @@ class TraceableEventWidget extends AbstractWidget
         $this->addParameter('tenantIdentifier', $searchSettingsResolver->resolveTenantIdentifier());
         $this->addParameter('adapterMolecules', $this->resolveAdapterMolecules($searchSettingsResolver->getActiveAdapter()));
         $this->addParameter('debug', $this->getConfig()->isDebugEnabled());
+        $this->addParameter(static::PARAMETER_IS_USER_ACTION_TRACKING_ENABLED, $this->isUserActionTrackingEnabled());
+        $this->addParameter(static::PARAMETER_IS_TRACKING_CONSENT_REQUIRED, $this->getConfig()->isTrackingConsentRequired());
     }
 
     public static function getName(): string
@@ -33,6 +39,11 @@ class TraceableEventWidget extends AbstractWidget
     public static function getTemplate(): string
     {
         return '@TraceableEventWidget/views/traceable-event/traceable-event.twig';
+    }
+
+    protected function isUserActionTrackingEnabled(): bool
+    {
+        return $this->getFactory()->createUserActionTrackingResolver()->isUserActionTrackingEnabled();
     }
 
     /**

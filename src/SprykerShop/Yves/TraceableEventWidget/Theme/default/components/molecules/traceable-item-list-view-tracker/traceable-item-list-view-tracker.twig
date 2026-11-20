@@ -1,0 +1,33 @@
+{% extends model('component') %}
+
+{% define config = {
+    name: 'traceable-item-list-view-tracker',
+    tag: 'traceable-item-list-view-tracker',
+} %}
+
+{#
+    list-selector - product lists to track, e.g. similar products; also lists added later, e.g. by an ajax update.
+    list-id-attribute - list attribute holding the list id.
+    list-name-attribute - list attribute holding the list name.
+    index-offset-attribute - optional list attribute holding the position of its first card, e.g. 24 on the second page of 24 results.
+    item-selector - product cards inside a list.
+    item-attribute - card attribute holding the product as JSON; the product needs a `sku`.
+    index-attribute - attribute the tracker writes on every card: the card position in its list, from 0.
+    view-event - document event dispatched with the newly seen products; register it in the `events` config.
+    visible-ratio - share of a card that has to be in view to count as seen.
+    report-delay - milliseconds the seen products are collected before one event reports them.
+#}
+{% define attributes = {
+    'list-selector': '[data-item-list-id]',
+    'list-id-attribute': 'data-item-list-id',
+    'list-name-attribute': 'data-item-list-name',
+    'index-offset-attribute': 'data-item-list-index-offset',
+    'item-selector': '.js-product-item',
+    'item-attribute': 'details',
+    'index-attribute': 'data-item-list-index',
+    'view-event': 'item-list-view',
+    'visible-ratio': 0.5,
+    'report-delay': 500,
+} %}
+
+{% block body %}{% endblock %}

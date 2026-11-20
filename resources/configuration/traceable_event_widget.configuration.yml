@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../../../Spryker/Configuration/resources/configuration/configuration-schema-v1.json
+features:
+    - key: integrations
+      name: Integrations
+      description: Third-party integrations configuration.
+      enabled: true
+      order: 100
+      tabs:
+          - key: tracking_consent
+            name: Tracking Consent
+            description: Whether storefront tracking, e.g. Google Analytics, waits for the shopper's consent from the shop's consent management platform.
+            enabled: true
+            order: 1
+            groups:
+                - key: consent
+                  name: Consent
+                  description: Storefront tracking starts only after the shopper's consent while consent is required.
+                  enabled: true
+                  order: 0
+                  scopes:
+                      - global
+                      - store
+                  settings:
+                      - key: consent_required
+                        name: Require Consent
+                        description: 'Tracking providers start and receive events only after the shopper consented. Switch it off only in an environment without real shoppers, e.g. a development or test environment: without required consent, every enabled provider tracks at once.'
+                        type: boolean
+                        default_value: true
+                        enabled: true
+                        secret: false
+                        storefront: true
+                        order: 0
+                        scopes:
+                            - global
+                            - store
